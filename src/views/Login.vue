@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { getToken, createServerSession } from "@/service/authService";
+import { login, getToken, createServerSession } from "@/service/authService";
+import { auth } from '@/firebase';
 import { toastController } from '@ionic/vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
@@ -37,10 +38,27 @@ const doLogin = async () => {
 
   loading.value = true;
   try {
+    // appelle la fonction login qui effectue signInWithEmailAndPassword
+    const user = await login(email.value, password.value, !!remember.value);
+
+    // vérification explicite: s'assurer que Firebase a bien un currentUser
+    const current = auth.currentUser || user;
+    if (!current || !current.uid) {
+      throw { code: 'auth/unknown', message: "Échec de l'authentification" };
+    }
+
+    // récupérer le token actuel (auth.currentUser est défini après login)
     const token = await getToken();
-    if (token) {
-      // tente de créer la session serveur (cookie HTTP-only)
-      await createServerSession(token, !!remember.value);
+    if (!token) {
+      // cas improbable mais possible : considérer comme échec
+      throw { code: 'auth/no-token', message: 'Impossible de récupérer le token d' + "authentification" };
+    }
+
+    // tente de créer la session serveur (cookie HTTP-only)
+    const sessOk = await createServerSession(token, !!remember.value);
+    if (!sessOk) {
+      const t = await toastController.create({ message: 'Impossible de créer la session serveur', duration: 2500, color: 'warning' });
+      await t.present();
     }
 
     const successToast = await toastController.create({ message: 'Connexion réussie', duration: 1500, color: 'success' });
@@ -50,7 +68,34 @@ const doLogin = async () => {
     await router.push(redirect);
   } catch (err: any) {
     console.error("Erreur login", err);
-    const t = await toastController.create({ message: err?.message || 'Erreur de connexion', duration: 2500, color: 'danger' });
+
+    // essayer d'extraire un message plus lisible depuis l'erreur Firebase
+    let message = 'Erreur de connexion';
+    if (err && err.code) {
+      switch (err.code) {
+        case 'auth/wrong-password':
+          message = 'Mot de passe incorrect';
+          break;
+        case 'auth/user-not-found':
+          message = 'Utilisateur introuvable';
+          break;
+        case 'auth/invalid-email':
+          message = 'Email invalide';
+          break;
+        case 'auth/too-many-requests':
+          message = 'Trop de tentatives, réessayez plus tard';
+          break;
+        case 'auth/no-token':
+          message = 'Impossible de vérifier la session, réessayez';
+          break;
+        default:
+          message = err.message || String(err);
+      }
+    } else if (err && err.message) {
+      message = err.message;
+    }
+
+    const t = await toastController.create({ message, duration: 3000, color: 'danger' });
     await t.present();
   } finally {
     loading.value = false;

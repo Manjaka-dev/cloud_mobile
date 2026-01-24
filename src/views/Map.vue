@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PointFormModal from "@/components/PointFormModal.vue";
 import { onMounted, ref, nextTick } from 'vue';
 import { IonPage } from '@ionic/vue';
 import L from 'leaflet';
@@ -22,16 +23,58 @@ const fixLeafletIcon = () => {
   });
 };
 
+const showPointModal = ref(false);
+const clickedPos = ref<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
+
+
+const handleMapClick = (e: L.LeafletMouseEvent) => {
+  if (!map.value) return;
+  const latlng = e.latlng;
+
+  // Optionnel : placer / déplacer un marqueur visuel immédiat
+  if (marker.value) {
+    marker.value.setLatLng(latlng).bindPopup(`Position: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`).openPopup();
+  } else {
+    marker.value = L.marker(latlng, { draggable: true }).addTo(map.value).bindPopup(`Position: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`).openPopup();
+    marker.value.on('dragend', (ev) => {
+      const m = ev.target as L.Marker;
+      const p = m.getLatLng();
+      m.bindPopup(`Position: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`).openPopup();
+    });
+  }
+
+  // ouvrir le formulaire modal en transmettant la position
+  clickedPos.value = { lat: latlng.lat, lng: latlng.lng };
+  showPointModal.value = true;
+};
+
+function onPointSaved(payload: any) {
+  // payload contient id et les champs sauvegardés, dont payload.location
+  console.log('Point sauvegardé', payload);
+
+  if (payload?.location && map.value) {
+    const loc = payload.location;
+    // ajouter un marqueur final (ou mettre à jour celui existant)
+    L.marker([loc.lat, loc.lng]).addTo(map.value).bindPopup(payload.description ?? 'Point').openPopup();
+    map.value.setView([loc.lat, loc.lng], 15, { animate: true });
+  }
+  showPointModal.value = false;
+}
+
 const initMap = (lat = 48.8566, lng = 2.3522, zoom = 13) => {
   if (map.value) return;
-  map.value = L.map('map').setView([lat, lng], zoom);
+
+  const m = L.map('map').setView([lat, lng], zoom);
+  map.value = m;
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map.value);
+  }).addTo(m);
 
   marker.value = L.marker([lat, lng]).addTo(map.value).bindPopup('Position par défaut');
+
+  m.on('click', handleMapClick);
 };
 
 onMounted(async () => {
@@ -87,6 +130,13 @@ const locateMe = async () => {
       <ion-button expand="block" @click="locateMe">Me localiser</ion-button>
     </ion-content>
   </ion-page>
+  <PointFormModal
+      :is-open="showPointModal"
+      :lat="clickedPos.lat"
+      :lng="clickedPos.lng"
+      @close="showPointModal = false"
+      @saved="onPointSaved"
+  />
 </template>
 
 <style scoped>
