@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import PointFormModal from "@/components/PointFormModal.vue";
-import { onMounted, ref, nextTick } from 'vue';
+import PointFormModal from '@/components/PointFormModal.vue';
+import { onMounted, onUnmounted, ref, nextTick } from 'vue';
 import { IonPage } from '@ionic/vue';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getCurrentPosition } from '@/service/geoService';
+import { listenCollection, getDocument } from '@/service/fireStoreService';
 
 const map = ref<L.Map | null>(null);
 const marker = ref<L.Marker | null>(null);
@@ -14,7 +15,7 @@ const fixLeafletIcon = () => {
   const iconUrl = new URL('leaflet/dist/images/marker-icon.png', import.meta.url).href;
   const shadowUrl = new URL('leaflet/dist/images/marker-shadow.png', import.meta.url).href;
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-expect-error
+  // @ts-ignore
   delete (L.Icon.Default.prototype as any)._getIconUrl;
   L.Icon.Default.mergeOptions({
     iconRetinaUrl: iconRetina,
@@ -23,39 +24,109 @@ const fixLeafletIcon = () => {
   });
 };
 
+function escapeHtml(input: string): string {
+  if (input == null) return '';
+  return String(input)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+}
+
+function formatDate(value: any): string {
+  if (!value) return '';
+
+  if (typeof value === 'object' && typeof (value as any).toDate === 'function') {
+    return (value as any).toDate().toLocaleString();
+  }
+
+  if (typeof value === 'number') {
+    return new Date(value).toLocaleString();
+  }
+
+  try {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+  } catch (err) { console.warn('formatDate parse failed', err); }
+
+  return String(value);
+}
+
 const showPointModal = ref(false);
 const clickedPos = ref<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
 
+const remoteMarkers = ref<Map<string, L.Marker>>(new Map());
+let unsubscribeSignals: (() => void) | null = null;
+
+function createMarkerIcon(iconSpec?: string) {
+  // Si iconSpec ressemble à une URL (commence par http(s) ou /), utiliser img
+  if (!iconSpec) return undefined;
+  try {
+    const trimmed = String(iconSpec).trim();
+    if (/^https?:\/\//.test(trimmed) || /^\//.test(trimmed)) {
+      return L.divIcon({
+        html: `<img src="${escapeHtml(trimmed)}" alt="icone" style="width:28px;height:28px;display:block;" />`,
+        className: 'custom-marker-icon',
+        iconSize: [28, 28],
+        iconAnchor: [14, 28]
+      });
+    }
+    // Si c'est un emoji court, afficher directement
+    if (/[^0-9A-Za-z_\-\s]/.test(trimmed) && trimmed.length <= 4) {
+      const safe = escapeHtml(trimmed);
+      return L.divIcon({
+        html: `<div class="emoji-marker">${safe}</div>`,
+        className: 'custom-marker-emoji',
+        iconSize: [30, 30],
+        iconAnchor: [15, 30]
+      });
+    }
+    // Sinon, on suppose que c'est le nom d'une IonIcon et on injecte la balise web component
+    const safeName = escapeHtml(trimmed);
+    return L.divIcon({
+      html: `<div class="ionicon-marker"><ion-icon name="${safeName}" style="font-size:22px;color: #ffffff; background: #3880ff; border-radius:50%; padding:6px;"></ion-icon></div>`,
+      className: 'custom-marker-ionicon',
+      iconSize: [34, 34],
+      iconAnchor: [17, 34]
+    });
+  } catch (e) {
+    return undefined;
+  }
+}
 
 const handleMapClick = (e: L.LeafletMouseEvent) => {
   if (!map.value) return;
   const latlng = e.latlng;
 
-  // Optionnel : placer / déplacer un marqueur visuel immédiat
   if (marker.value) {
     marker.value.setLatLng(latlng).bindPopup(`Position: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`).openPopup();
   } else {
-    marker.value = L.marker(latlng, { draggable: true }).addTo(map.value).bindPopup(`Position: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`).openPopup();
-    marker.value.on('dragend', (ev) => {
-      const m = ev.target as L.Marker;
-      const p = m.getLatLng();
-      m.bindPopup(`Position: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`).openPopup();
-    });
-  }
+      const newM = L.marker(latlng, { draggable: true });
+      (map.value! as any).addLayer(newM);
+      newM.bindPopup(`Position: ${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`).openPopup();
+      marker.value = newM;
+      marker.value.on('dragend', (ev) => {
+        const m = ev.target as L.Marker;
+        const p = m.getLatLng();
+        m.bindPopup(`Position: ${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`).openPopup();
+      });
+    }
 
-  // ouvrir le formulaire modal en transmettant la position
   clickedPos.value = { lat: latlng.lat, lng: latlng.lng };
   showPointModal.value = true;
 };
 
 function onPointSaved(payload: any) {
-  // payload contient id et les champs sauvegardés, dont payload.location
   console.log('Point sauvegardé', payload);
 
   if (payload?.location && map.value) {
     const loc = payload.location;
-    // ajouter un marqueur final (ou mettre à jour celui existant)
-    L.marker([loc.lat, loc.lng]).addTo(map.value).bindPopup(payload.description ?? 'Point').openPopup();
+    const icon = createMarkerIcon(payload?.idTypeSignalement?.icone);
+    const markerOpts: L.MarkerOptions | undefined = icon ? { icon } : undefined;
+    const newMarker = markerOpts ? L.marker([loc.lat, loc.lng], markerOpts) : L.marker([loc.lat, loc.lng]);
+    (map.value! as any).addLayer(newMarker);
+    newMarker.bindPopup(payload.description ?? 'Point').openPopup();
     map.value.setView([loc.lat, loc.lng], 15, { animate: true });
   }
   showPointModal.value = false;
@@ -72,16 +143,99 @@ const initMap = (lat = 48.8566, lng = 2.3522, zoom = 13) => {
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(m);
 
-  marker.value = L.marker([lat, lng]).addTo(map.value).bindPopup('Position par défaut');
+  marker.value = L.marker([lat, lng]);
+  (m as any).addLayer(marker.value as any);
+  marker.value.bindPopup('Position par défaut');
 
   m.on('click', handleMapClick);
 };
 
+function startSignalmentListener() {
+  if (!map.value) return;
+
+  if (unsubscribeSignals) {
+    try { unsubscribeSignals(); } catch (e) { console.warn('unsubscribe failed', e); }
+    unsubscribeSignals = null;
+  }
+
+  unsubscribeSignals = listenCollection('signalements', (items) => {
+    if (!map.value) return;
+
+    const incomingIds = new Set<string>();
+
+    for (const it of items as Array<any & { id: string }>) {
+      const id = it.id;
+      incomingIds.add(id);
+
+      const loc = it.location;
+      if (!loc || typeof loc.lat !== 'number' || typeof loc.lng !== 'number') continue;
+
+      const title = it.title ?? it.type ?? 'Signalement';
+      const dateStr = formatDate(it.dateMiseAJour ?? it.updatedAt ?? it.updatedAt);
+      const desc = it.description ?? '';
+      const surface = it.surfaceM2 != null ? String(it.surfaceM2) : '';
+      const idEntreprise = it.idEntreprise ?? it.entrepriseId ?? null;
+
+      // contenu initial (sécurisé)
+      const popupContentBase = `<div>
+      <strong>${escapeHtml(title)}</strong><br/>
+      <small>${escapeHtml(dateStr)}</small><br/>
+      <div>${escapeHtml(desc)}</div>
+      ${surface ? `<div>Surface : ${escapeHtml(surface)} m²</div>` : ''}
+      <div id="enterprise-${escapeHtml(id)}">Entreprise : ${escapeHtml(String(idEntreprise ?? '…'))}</div>
+    </div>`;
+
+      const existing = remoteMarkers.value.get(id);
+      if (existing) {
+        try {
+          existing.setLatLng([loc.lat, loc.lng]);
+          try { existing.setPopupContent(popupContentBase); } catch (err) { console.warn('setPopupContent failed', err); }
+        } catch (err) { console.warn('update marker failed', err); }
+      } else {
+        const icon = createMarkerIcon(it?.idTypeSignalement?.icone ?? it?.typeIcon ?? null);
+        const markerOpts: L.MarkerOptions | undefined = icon ? { icon } : undefined;
+        const m = markerOpts ? L.marker([loc.lat, loc.lng], markerOpts) : L.marker([loc.lat, loc.lng]);
+        m.bindPopup(popupContentBase);
+        m.on('click', () => m.openPopup());
+        (map.value! as any).addLayer(m as any);
+        remoteMarkers.value.set(id, m);
+      }
+
+      // récupération asynchrone de l'entreprise pour compléter le popup
+      if (idEntreprise) {
+        // fetch without blocking the loop
+        getDocument('entreprises', String(idEntreprise)).then((ent) => {
+          const entLabel = ent ? (ent.nom ?? ent.name ?? ent.id ?? String(idEntreprise)) : String(idEntreprise);
+          const updated = remoteMarkers.value.get(id);
+          if (!updated) return;
+          const updatedContent = `<div>
+          <strong>${escapeHtml(title)}</strong><br/>
+          <small>${escapeHtml(dateStr)}</small><br/>
+          <div>${escapeHtml(desc)}</div>
+          ${surface ? `<div>Surface : ${escapeHtml(surface)} m²</div>` : ''}
+          <div>Entreprise : ${escapeHtml(entLabel)}</div>
+        </div>`;
+          try { updated.setPopupContent(updatedContent); } catch (err) { console.warn('setPopupContent updated failed', err); }
+        }).catch((err) => {
+          console.warn('Erreur récupération entreprise', err);
+        });
+      }
+    }
+
+    // suppression des marqueurs absents
+    for (const [id, m] of Array.from(remoteMarkers.value.entries())) {
+      if (!incomingIds.has(id)) {
+        try { (map.value as any)?.removeLayer(m as any); } catch (err) { console.warn('removeLayer failed', err); }
+        remoteMarkers.value.delete(id);
+      }
+    }
+  });
+}
+
 onMounted(async () => {
   fixLeafletIcon();
-  initMap(); // initialise avec Paris par défaut
+  initMap();
 
-  // attendre le rendu du DOM puis invalider la taille pour éviter décalage
   await nextTick();
   map.value?.invalidateSize();
 
@@ -89,9 +243,21 @@ onMounted(async () => {
   if (pos && map.value) {
     const latlng: L.LatLngExpression = [pos.lat, pos.lng];
     marker.value?.setLatLng(latlng).bindPopup('Vous êtes ici').openPopup();
-    // centrer la carte sur la position (zoom 15)
     map.value.setView(latlng, 15, { animate: true });
   }
+
+  startSignalmentListener();
+});
+
+onUnmounted(() => {
+  if (unsubscribeSignals) {
+    try { unsubscribeSignals(); } catch (err) { console.warn('unsubscribe failed', err); }
+    unsubscribeSignals = null;
+  }
+  for (const m of remoteMarkers.value.values()) {
+    try { (map.value as any)?.removeLayer(m as any); } catch (e) { console.warn('removeLayer failed during unmount', e); }
+  }
+  remoteMarkers.value.clear();
 });
 
 const locateMe = async () => {
@@ -106,13 +272,14 @@ const locateMe = async () => {
   if (marker.value) {
     marker.value.setLatLng(latlng).bindPopup('Vous êtes ici').openPopup();
   } else {
-    marker.value = L.marker(latlng).addTo(map.value).bindPopup('Vous êtes ici').openPopup();
+    const m2 = L.marker(latlng);
+    map.value!.addLayer(m2);
+    m2.bindPopup('Vous êtes ici').openPopup();
+    marker.value = m2;
   }
 
-  // Centrer strictement le marqueur au centre de la carte
   map.value.setView(latlng, 16, { animate: true });
 
-  // Si le conteneur a changé de taille, forcer le recalcul pour éviter décalage
   setTimeout(() => map.value?.invalidateSize(), 300);
 };
 </script>
@@ -145,4 +312,10 @@ const locateMe = async () => {
   height: 60vh;
   border-radius: 8px;
 }
+
+/* icones personnalisées */
+.custom-marker-emoji .emoji-marker {
+  display:flex; align-items:center; justify-content:center; width:32px; height:32px; background:rgba(255,255,255,0.9); border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,0.25); font-size:18px;
+}
+.custom-marker-icon img { border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,0.25); }
 </style>
