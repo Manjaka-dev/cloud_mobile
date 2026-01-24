@@ -2,6 +2,7 @@
 import {onMounted, ref, watch} from 'vue';
 import {addDocument, getCollection} from '@/service/fireStoreService';
 import {getToken} from '@/service/authService';
+import { IonIcon } from '@ionic/vue';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -27,6 +28,56 @@ const error = ref<string | null>(null);
 const lastErrorObj = ref<any>(null);
 const retryCount = ref(0);
 const MAX_RETRIES = 2; // nombre max de tentatives automatiques pour erreurs transitoires
+
+// ---- new: types de signalement ----
+type TypeSignal = { id: string; nom: string; icone?: string; iconObj?: any };
+const types = ref<TypeSignal[]>([]);
+const selectedType = ref<TypeSignal | null>(null);
+
+let iconsModule: any = null; // chargé dynamiquement quand nécessaire
+
+// helpers dynamiques
+function isUrl(v?: string) {
+  if (!v) return false;
+  return /^(https?:)?\/\//i.test(v) || /^\//.test(v);
+}
+
+function isEmoji(v?: string) {
+  if (!v) return false;
+  const s = String(v).trim();
+  if (s.length === 0 || s.length > 4) return false;
+  return /[^0-9A-Za-z_\-\s]/.test(s);
+}
+
+async function loadTypes() {
+  try {
+    const items = await getCollection('typeSignalement');
+    // tenter de charger dynamiquement ionicons/icons (uniquement si besoin)
+    const needIcons = (items || []).some((t: any) => !!t?.icone && !isUrl(t.icone) && !isEmoji(t.icone));
+    if (needIcons) {
+      try {
+        iconsModule = await import('ionicons/icons');
+      } catch (e) {
+        console.warn('Impossible de charger dynamiquement ionicons/icons', e);
+        iconsModule = null;
+      }
+    }
+
+    types.value = (items || []).map((t: any) => {
+      const ic: string | undefined = t.icone;
+      const ts: TypeSignal = { id: t.id, nom: t.nom ?? t.name ?? t.id, icone: ic };
+      if (iconsModule && ic && !isUrl(ic) && !isEmoji(ic)) {
+        // trouver l'export correspondant (clé exactement égale)
+        const key = String(ic).trim();
+        ts.iconObj = (iconsModule as any)[key] ?? (iconsModule as any)[key.replace(/[-_ ]+(.)/g, (_, c) => c.toUpperCase())];
+      }
+      return ts;
+    });
+  } catch (e) {
+    console.error('Erreur récupération types de signalement', e);
+    types.value = [];
+  }
+}
 
 async function loadEntreprises() {
   error.value = null;
@@ -58,10 +109,16 @@ async function loadEntreprises() {
   }
 }
 
-onMounted(loadEntreprises);
+onMounted(() => {
+  loadTypes();
+  loadEntreprises();
+});
 
 watch(() => show.value, (v) => {
-  if (v) loadEntreprises();
+  if (v) {
+    loadEntreprises();
+    loadTypes();
+  }
 });
 
 function close () {
@@ -74,6 +131,7 @@ function reset() {
   description.value = '';
   surfaceM2.value = null;
   selectedEntreprise.value = null;
+  selectedType.value = null;
   error.value = null;
   lastErrorObj.value = null;
   retryCount.value = 0;
@@ -120,8 +178,8 @@ async function save() {
   error.value = null;
   lastErrorObj.value = null;
 
-  if (budget.value == null || surfaceM2.value == null || !description.value || !selectedEntreprise.value || props.lat == null || props.lng == null ) {
-    error.value = 'Remplissez tout les champs obligatoires';
+  if (budget.value == null || surfaceM2.value == null || !description.value || !selectedEntreprise.value || props.lat == null || props.lng == null || !selectedType.value) {
+    error.value = 'Remplissez tout les champs obligatoires (y compris le type de signalement)';
     return;
   }
 
@@ -144,7 +202,13 @@ async function save() {
       idEntreprise: Number(selectedEntreprise.value),
       surfaceM2: Number(surfaceM2.value),
       version: 1,
-      location: { lat: props.lat, lng: props.lng }
+      location: { lat: props.lat, lng: props.lng },
+      // idTypeSignalement enregistré comme objet contenant id, nom et icone
+      idTypeSignalement: {
+        id: selectedType.value!.id,
+        nom: selectedType.value!.nom,
+        icone: selectedType.value!.icone ?? null
+      }
     };
 
     retryCount.value = 0;
@@ -180,7 +244,6 @@ async function retrySave() {
   retryCount.value += 1;
   await save();
 }
-
 </script>
 
 <template>
@@ -204,6 +267,35 @@ async function retrySave() {
           <option value="" disabled>Choisir une entreprise</option>
           <option v-for="e in entreprises" :key="e.docId" :value="e.postgres_id">{{ e.nom }}</option>
         </select>
+      </div>
+
+      <!-- nouvelle selection types -->
+      <div class="pfm-row">
+        <label>Type de signalement</label>
+        <div class="type-list">
+          <button
+            v-for="t in types"
+            :key="t.id"
+            :class="['type-btn', { selected: selectedType && selectedType.id === t.id }]"
+            @click.prevent="selectedType = t"
+            type="button"
+          >
+            <span class="type-icone">
+              <!-- Affichage dynamique de l'icône -->
+              <template v-if="isUrl(t.icone)">
+                <img :src="t.icone" alt="" style="width:24px; height:24px; object-fit:contain;" />
+              </template>
+              <template v-else-if="isEmoji(t.icone)">
+                {{ t.icone }}
+              </template>
+              <template v-else>
+                <IonIcon v-if="t.iconObj" :icon="t.iconObj" />
+                <span v-else>{{ t.icone || '🔷' }}</span>
+              </template>
+            </span>
+            <span class="type-nom">{{ t.nom }}</span>
+          </button>
+        </div>
       </div>
 
       <div class="pfm-row">
@@ -252,4 +344,14 @@ async function retrySave() {
 .pfm-actions button:first-child { background:#eee; }
 .pfm-actions button:last-child { background:#2d8cff; color:#fff; }
 .pfm-error { color: #c00; margin-top:8px; font-size:13px; }
+
+/* types list */
+.type-list { display:flex; gap:8px; flex-wrap:wrap; }
+.type-btn { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.type-btn.selected { background:#2d8cff; color:#fff; border-color: #2d8cff; }
+.type-icone { font-size:18px; }
+.type-nom { font-size:13px; }
 </style>
+
+
+

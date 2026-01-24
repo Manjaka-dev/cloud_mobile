@@ -5,11 +5,12 @@ import HomePage from '../views/HomePage.vue';
 import Login from '../views/Login.vue';
 import Map from '../views/Map.vue';
 import { auth } from '@/firebase';
+import StatistiquesPage from "@/views/StatistiquesPage.vue";
 
 const routes: Array<RouteRecordRaw> = [
   {
     path: '/',
-    redirect: '/login'
+    redirect: '/home'
   },
   {
     path: '/home',
@@ -27,6 +28,12 @@ const routes: Array<RouteRecordRaw> = [
     path:'/map',
     name: 'Map',
     component: Map,
+    meta: { requiresAuth: true }
+  },
+  {
+    path:'/statistiques',
+    name: 'Statistiques',
+    component: StatistiquesPage,
     meta: { requiresAuth: true }
   }
 

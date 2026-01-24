@@ -102,7 +102,6 @@ const doLogin = async () => {
   }
 };
 
-const goRegister = () => router.push('/register');
 </script>
 
 <template>
@@ -153,12 +152,6 @@ const goRegister = () => router.push('/register');
           <span v-if="!loading">Se connecter</span>
           <span v-else>Connexion...</span>
         </ion-button>
-
-        <div class="register-link">
-          <p>Pas encore de compte ?
-            <ion-button fill="clear" @click="goRegister">S'inscrire</ion-button>
-          </p>
-        </div>
       </div>
     </ion-content>
   </ion-page>
@@ -191,11 +184,6 @@ ion-item {
   width: 100%;
   max-width: 350px;
   height: 50px;
-}
-
-.register-link {
-  text-align: center;
-  margin-top: 20px;
 }
 
 .register-link p {
