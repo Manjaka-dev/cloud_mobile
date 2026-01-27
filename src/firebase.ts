@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {getAuth, initializeAuth, indexedDBLocalPersistence, setPersistence, Auth} from "firebase/auth";
 import { getFirestore } from 'firebase/firestore';
+import {isPlatform} from "@ionic/vue";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBuiUJBK9_eEXVKjc89iUNn1gLHdrcqwQk",
@@ -13,6 +14,12 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+let auth: Auth;
+if (isPlatform('hybrid')) {
+    auth = initializeAuth(app, {persistence: indexedDBLocalPersistence})
+} else {
+    auth = getAuth(app);
+    setPersistence(auth,indexedDBLocalPersistence);
+}
+export {auth};
 export const db = getFirestore(app);
-
