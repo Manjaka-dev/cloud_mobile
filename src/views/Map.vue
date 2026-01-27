@@ -59,20 +59,22 @@ const clickedPos = ref<{ lat: number | null; lng: number | null }>({ lat: null, 
 const remoteMarkers = ref<Map<string, L.Marker>>(new Map());
 let unsubscribeSignals: (() => void) | null = null;
 
+// typescript
 function createMarkerIcon(iconSpec?: string) {
-  // Si iconSpec ressemble à une URL (commence par http(s) ou /), utiliser img
   if (!iconSpec) return undefined;
   try {
     const trimmed = String(iconSpec).trim();
+    // URL (image)
     if (/^https?:\/\//.test(trimmed) || /^\//.test(trimmed)) {
       return L.divIcon({
-        html: `<img src="${escapeHtml(trimmed)}" alt="icone" style="width:28px;height:28px;display:block;" />`,
+        html: `<img src="${escapeHtml(trimmed)}" alt="icone" style="width:28px;height:28px;display:block;border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,0.25);" />`,
         className: 'custom-marker-icon',
         iconSize: [28, 28],
         iconAnchor: [14, 28]
       });
     }
-    // Si c'est un emoji court, afficher directement
+
+    // emoji court
     if (/[^0-9A-Za-z_\-\s]/.test(trimmed) && trimmed.length <= 4) {
       const safe = escapeHtml(trimmed);
       return L.divIcon({
@@ -82,15 +84,19 @@ function createMarkerIcon(iconSpec?: string) {
         iconAnchor: [15, 30]
       });
     }
-    // Sinon, on suppose que c'est le nom d'une IonIcon et on injecte la balise web component
-    const safeName = escapeHtml(trimmed);
+
+    // nom d'IonIcon -> on utilise le SVG depuis unpkg pour éviter les problèmes de web-component non hydraté
+    const safeName = encodeURIComponent(trimmed);
+    const svgUrl = `https://unpkg.com/ionicons@5.5.2/dist/svg/${safeName}.svg`;
+    const alt = escapeHtml(trimmed);
     return L.divIcon({
-      html: `<div class="ionicon-marker"><ion-icon name="${safeName}" style="font-size:22px;color: #ffffff; background: #3880ff; border-radius:50%; padding:6px;"></ion-icon></div>`,
+      html: `<div class="ionicon-marker"><img src="${svgUrl}" alt="${alt}" class="ionicon-marker-img" /></div>`,
       className: 'custom-marker-ionicon',
       iconSize: [34, 34],
       iconAnchor: [17, 34]
     });
   } catch (e) {
+    console.warn('createMarkerIcon failed', e, iconSpec);
     return undefined;
   }
 }
@@ -318,4 +324,18 @@ const locateMe = async () => {
   display:flex; align-items:center; justify-content:center; width:32px; height:32px; background:rgba(255,255,255,0.9); border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,0.25); font-size:18px;
 }
 .custom-marker-icon img { border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,0.25); }
+
+/* css */
+.custom-marker-ionicon .ionicon-marker-img {
+  width:22px;
+  height:22px;
+  display:block;
+  border-radius:50%;
+  padding:6px;
+  background:#3880ff;
+  box-shadow:0 1px 4px rgba(0,0,0,0.25);
+  filter:invert(1); /* si icônes SVG noires, on les inverse pour blanc */
+  object-fit:contain;
+}
+
 </style>
