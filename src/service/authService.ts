@@ -9,6 +9,7 @@ import {
     getIdToken
 } from "firebase/auth";
 import { auth } from "@/firebase";
+import { addDocument } from '@/service/fireStoreService';
 
 const INACTIVITTY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 let inactivityTimer: number | null = null;
@@ -37,6 +38,42 @@ export const stopInactivityWatcher = () => {
     for (const ev of activityEvents) window.removeEventListener(ev, resetInactivityTimer);
 };
 
+function formatDateISO(date: Date) {
+    return date.toISOString().split('T')[0]; // YYYY-MM-DD
+}
+
+function authModeLabel(remember?: boolean | null) {
+    if (remember === true) return 'ONLINE';
+    if (remember === false) return 'SESSION';
+    return 'MEMORY';
+}
+
+async function logAuthEvent(email: string, action: 'LOGIN_SUCCESS' | 'LOGIN_FAILED', remember?: boolean | null, reason?: string | null) {
+    const now = new Date();
+    const payload: any = {
+        dateCreation: formatDateISO(now),
+        donnes: {
+            action,
+            authMode: authModeLabel(remember),
+            email,
+            timestamp: now.toISOString()
+        },
+        idEntite: null,
+        localId: null,
+        operation: "INSERT",
+        synchronise: false,
+        typeEntite: "utilisateurs",
+        version: null
+    };
+    if (reason) payload.donnes.raison = reason;
+
+    try {
+        await addDocument('journal', payload);
+    } catch (e) {
+        // ne pas bloquer l'auth si l'écriture du journal échoue
+        console.error('Erreur écriture journal auth', e);
+    }
+}
 
 /**
  * login
@@ -45,13 +82,26 @@ export const stopInactivityWatcher = () => {
  * @param remember - true = persistent (local), false = session, null/undefined = memory
  */
 export const login = async (email: string, password: string, remember?: boolean | null) => {
-    if (remember === true) await setPersistence(auth, browserLocalPersistence);
-    else if (remember === false) await setPersistence(auth, browserSessionPersistence);
-    else await setPersistence(auth, inMemoryPersistence);
+    try {
+        if (remember === true) await setPersistence(auth, browserLocalPersistence);
+        else if (remember === false) await setPersistence(auth, browserSessionPersistence);
+        else await setPersistence(auth, inMemoryPersistence);
+    } catch (e: any) {
+        // loger l'échec de persistance comme échec de connexion (ou séparé si souhaité)
+        await logAuthEvent(email, 'LOGIN_FAILED', remember, `setPersistence_failed: ${e?.code || e?.message || String(e)}`);
+        throw e;
+    }
 
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    startInactivityWatcher();
-    return userCredential.user;
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        await logAuthEvent(email, 'LOGIN_SUCCESS', remember);
+        startInactivityWatcher();
+        return userCredential.user;
+    } catch (e: any) {
+        const reason = e?.code || e?.message || String(e);
+        await logAuthEvent(email, 'LOGIN_FAILED', remember, reason);
+        throw e;
+    }
 };
 
 export const signOut = async () => {
