@@ -78,9 +78,9 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } };
   }
 
-  // If route is for guests (login) and user exists, redirect to map
+  // If route is for guests (login) and user exists, redirect to home
   if (to.meta?.guest && user) {
-    return { path: '/map' };
+    return { path: '/home' };
   }
 
   // laisser passer
