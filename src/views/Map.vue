@@ -60,17 +60,24 @@ const remoteMarkers = ref<Map<string, L.Marker>>(new Map());
 let unsubscribeSignals: (() => void) | null = null;
 
 // typescript
-function createMarkerIcon(iconSpec?: string) {
+function createMarkerIcon(iconSpec?: string, status?: number) {
   if (!iconSpec) return undefined;
   try {
     const trimmed = String(iconSpec).trim();
+
+    // déterminer la couleur selon le statut
+    let bg = '#3880ff'; // défaut bleu
+    if (status == null || status === 1) bg = '#e74c3c'; // nouveau -> rouge
+    else if (status === 2) bg = '#f39c12'; // en cours -> orange
+    else if (status === 3) bg = '#2ecc71'; // terminé -> vert
+
     // URL (image)
     if (/^https?:\/\//.test(trimmed) || /^\//.test(trimmed)) {
       return L.divIcon({
-        html: `<img src="${escapeHtml(trimmed)}" alt="icone" style="width:28px;height:28px;display:block;border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,0.25);" />`,
+        html: `<div style="width:34px;height:34px;border-radius:20px;background:${escapeHtml(bg)};display:flex;align-items:center;justify-content:center;padding:3px;box-shadow:0 1px 4px rgba(0,0,0,0.25);"><img src="${escapeHtml(trimmed)}" alt="icone" style="width:24px;height:24px;border-radius:12px;display:block;object-fit:contain;"/></div>`,
         className: 'custom-marker-icon',
-        iconSize: [28, 28],
-        iconAnchor: [14, 28]
+        iconSize: [34, 34],
+        iconAnchor: [17, 34]
       });
     }
 
@@ -78,7 +85,7 @@ function createMarkerIcon(iconSpec?: string) {
     if (/[^0-9A-Za-z_\-\s]/.test(trimmed) && trimmed.length <= 4) {
       const safe = escapeHtml(trimmed);
       return L.divIcon({
-        html: `<div class="emoji-marker">${safe}</div>`,
+        html: `<div class="emoji-marker" style="background:${escapeHtml(bg)}">${safe}</div>`,
         className: 'custom-marker-emoji',
         iconSize: [30, 30],
         iconAnchor: [15, 30]
@@ -90,7 +97,7 @@ function createMarkerIcon(iconSpec?: string) {
     const svgUrl = `https://unpkg.com/ionicons@5.5.2/dist/svg/${safeName}.svg`;
     const alt = escapeHtml(trimmed);
     return L.divIcon({
-      html: `<div class="ionicon-marker"><img src="${svgUrl}" alt="${alt}" class="ionicon-marker-img" /></div>`,
+      html: `<div class="ionicon-marker" style="background:${escapeHtml(bg)};width:34px;height:34px;border-radius:18px;display:flex;align-items:center;justify-content:center;padding:6px;box-shadow:0 1px 4px rgba(0,0,0,0.25);"><img src="${svgUrl}" alt="${alt}" class="ionicon-marker-img" /></div>`,
       className: 'custom-marker-ionicon',
       iconSize: [34, 34],
       iconAnchor: [17, 34]
@@ -128,7 +135,7 @@ function onPointSaved(payload: any) {
 
   if (payload?.location && map.value) {
     const loc = payload.location;
-    const icon = createMarkerIcon(payload?.idTypeSignalement?.icone);
+    const icon = createMarkerIcon(payload?.idTypeSignalement?.icone, payload?.status ?? null);
     const markerOpts: L.MarkerOptions | undefined = icon ? { icon } : undefined;
     const newMarker = markerOpts ? L.marker([loc.lat, loc.lng], markerOpts) : L.marker([loc.lat, loc.lng]);
     (map.value! as any).addLayer(newMarker);
@@ -192,13 +199,18 @@ function startSignalmentListener() {
     </div>`;
 
       const existing = remoteMarkers.value.get(id);
+      const icon = createMarkerIcon(it?.idTypeSignalement?.icone ?? it?.typeIcon ?? null, it?.status ?? null);
+
       if (existing) {
         try {
           existing.setLatLng([loc.lat, loc.lng]);
+          // mettre à jour l'icône si le statut ou le type a changé
+          try {
+            if (icon) existing.setIcon(icon);
+          } catch (err) { console.warn('setIcon failed', err); }
           try { existing.setPopupContent(popupContentBase); } catch (err) { console.warn('setPopupContent failed', err); }
         } catch (err) { console.warn('update marker failed', err); }
       } else {
-        const icon = createMarkerIcon(it?.idTypeSignalement?.icone ?? it?.typeIcon ?? null);
         const markerOpts: L.MarkerOptions | undefined = icon ? { icon } : undefined;
         const m = markerOpts ? L.marker([loc.lat, loc.lng], markerOpts) : L.marker([loc.lat, loc.lng]);
         m.bindPopup(popupContentBase);
