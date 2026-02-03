@@ -6,6 +6,7 @@ import Login from '../views/Login.vue';
 import Map from '../views/Map.vue';
 import { auth } from '@/firebase';
 import StatistiquesPage from "@/views/StatistiquesPage.vue";
+import BlockedView from "@/views/BlockedView.vue";
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -35,6 +36,11 @@ const routes: Array<RouteRecordRaw> = [
     name: 'Statistiques',
     component: StatistiquesPage,
     meta: { requiresAuth: true }
+  },
+  {
+    path:'/blocked',
+    name:'blocked',
+    component: BlockedView
   }
 
 ]
@@ -78,9 +84,9 @@ router.beforeEach(async (to) => {
     return { path: '/login', query: { redirect: to.fullPath } };
   }
 
-  // If route is for guests (login) and user exists, redirect to map
+  // If route is for guests (login) and user exists, redirect to home
   if (to.meta?.guest && user) {
-    return { path: '/map' };
+    return { path: '/home' };
   }
 
   // laisser passer

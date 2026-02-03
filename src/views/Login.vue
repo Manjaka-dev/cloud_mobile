@@ -69,6 +69,19 @@ const doLogin = async () => {
   } catch (err: any) {
     console.error("Erreur login", err);
 
+    // si utilisateur bloqué par dépassement de tentatives (authService lance USER_BLOCKED avec blockedUntil)
+    const blockedUntil = err?.blockedUntil || err?.blockedUntil; // defensive
+    if (err && (err.message === 'USER_BLOCKED' || err.code === 'USER_BLOCKED' || blockedUntil)) {
+      const until = blockedUntil || null;
+      const msg = `Compte bloqué jusqu'à ${until ? new Date(until).toLocaleString() : '...'}`;
+      const t = await toastController.create({ message: msg, duration: 3000, color: 'warning' });
+      await t.present();
+      // rediriger vers la page blocked en passant la date de déblocage en query
+      await router.push({ name: 'blocked', query: { until: until || '' } });
+      loading.value = false;
+      return;
+    }
+
     // essayer d'extraire un message plus lisible depuis l'erreur Firebase
     let message = 'Erreur de connexion';
     if (err && err.code) {
