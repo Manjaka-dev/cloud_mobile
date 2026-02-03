@@ -6,6 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { getCurrentPosition } from '@/service/geoService';
 import { listenCollection, getDocument } from '@/service/fireStoreService';
+import { getOptimizedUrl } from '@/service/StorageService';
 
 const map = ref<L.Map | null>(null);
 const marker = ref<L.Marker | null>(null);
@@ -190,12 +191,26 @@ function startSignalmentListener() {
       const idEntreprise = it.idEntreprise ?? it.entrepriseId ?? null;
 
       // contenu initial (sécurisé)
+      let imagesHtml = '';
+      try {
+        if (Array.isArray(it.images) && it.images.length > 0) {
+          imagesHtml = '<div class="popup-images" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' + it.images.map((u: any) => {
+            // u est maintenant une string URL (nouveau format) ou possiblement un objet (ancien format)
+            const url = (typeof u === 'string') ? u : (u.optimized_url || u.thumb_url || u.url || u.public_id);
+            const thumb = getOptimizedUrl(String(url), { width: 200, height: 200, crop: 'fill' });
+            const safe = escapeHtml(String(url));
+            return `<a href='${safe}' target='_blank' rel='noopener noreferrer' style='display:block;width:72px;height:72px;overflow:hidden;border-radius:6px;'><img src='${escapeHtml(thumb)}' style='width:100%;height:100%;object-fit:cover;'/></a>`;
+          }).join('') + '</div>';
+        }
+      } catch (err) { console.warn('build images html failed', err); }
+
       const popupContentBase = `<div>
       <strong>${escapeHtml(title)}</strong><br/>
       <small>${escapeHtml(dateStr)}</small><br/>
       <div>${escapeHtml(desc)}</div>
       ${surface ? `<div>Surface : ${escapeHtml(surface)} m²</div>` : ''}
       <div id="enterprise-${escapeHtml(id)}">Entreprise : ${escapeHtml(String(idEntreprise ?? '…'))}</div>
+      ${imagesHtml}
     </div>`;
 
       const existing = remoteMarkers.value.get(id);
