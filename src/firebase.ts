@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import {getAuth, initializeAuth, indexedDBLocalPersistence, setPersistence, Auth} from "firebase/auth";
 import { getFirestore } from 'firebase/firestore';
 import {isPlatform} from "@ionic/vue";
+import { getMessaging } from "firebase/messaging";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBuiUJBK9_eEXVKjc89iUNn1gLHdrcqwQk",
@@ -23,3 +24,4 @@ if (isPlatform('hybrid')) {
 }
 export {auth};
 export const db = getFirestore(app);
+export const messaging = getMessaging(app);

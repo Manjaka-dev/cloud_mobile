@@ -289,12 +289,22 @@ export const getToken = async (forceRefresh = false): Promise<string | null> => 
  */
 export const createServerSession = async (idToken: string, remember = false): Promise<boolean> => {
     try {
-        const res = await fetch("/sessionLogin", {
+        // URL configurable via env. Si non fournie, on skippe l'appel (dev sans backend)
+        const url = (import.meta.env.VITE_SESSION_LOGIN_URL as string) || '';
+        if (!url) {
+            console.info('createServerSession: no VITE_SESSION_LOGIN_URL configured, skipping server session creation');
+            return false;
+        }
+
+        const res = await fetch(url, {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idToken, remember })
         });
+        if (!res.ok) {
+            console.warn(`createServerSession: server returned ${res.status} ${res.statusText}`);
+        }
         return res.ok;
     } catch (e) {
         console.error("Erreur createServerSession", e);
