@@ -2,7 +2,6 @@ import { initializeApp } from "firebase/app";
 import {getAuth, initializeAuth, indexedDBLocalPersistence, setPersistence, Auth} from "firebase/auth";
 import { getFirestore } from 'firebase/firestore';
 import {isPlatform} from "@ionic/vue";
-import { getMessaging } from "firebase/messaging";
 
 const firebaseConfig = {
     apiKey: "AIzaSyBuiUJBK9_eEXVKjc89iUNn1gLHdrcqwQk",
@@ -24,4 +23,20 @@ if (isPlatform('hybrid')) {
 }
 export {auth};
 export const db = getFirestore(app);
-export const messaging = getMessaging(app);
+
+// N'exporter messaging que sur les plateformes web
+let messaging: any = null;
+if (!isPlatform('hybrid')) {
+    try {
+        // Import ES6 pour Vite
+        import('firebase/messaging').then(({ getMessaging }) => {
+            messaging = getMessaging(app);
+            console.log('✅ Firebase messaging initialized');
+        }).catch((e) => {
+            console.warn('⚠️ Firebase messaging import failed:', e);
+        });
+    } catch (e) {
+        console.warn('⚠️ Firebase messaging not available:', e);
+    }
+}
+export { messaging };

@@ -20,6 +20,7 @@ const show = ref(false);
 watch(() => props.isOpen, (v) => (show.value= v));
 
 const budget = ref<number | null>(null);
+const niveau = ref<number | null>(null);
 const description = ref('');
 const surfaceM2 = ref<number | null>(null);
 const selectedEntreprise = ref < string | number | null>(null);
@@ -110,9 +111,44 @@ async function loadEntreprises() {
   }
 }
 
+const prixM2Cache = ref<number | null>(null);
+
+async function getPrixM2Param() {
+  // Utiliser le cache si disponible
+  if (prixM2Cache.value !== null) {
+    return prixM2Cache.value;
+  }
+
+  const token = await getToken();
+  if (!token) {
+    console.warn('Token manquant pour récupérer les paramètres');
+    return null;
+  }
+
+  try {
+    const items = await getCollection('parametres');
+    const prixM2Param = items.find(i => i.nom === 'FORFAIT_M2');
+    const prix = prixM2Param?.valeur ? parseInt(prixM2Param.valeur) : null;
+    prixM2Cache.value = prix;
+    return prix;
+  } catch (e: any) {
+    console.error('Erreur récupération des paramètres', e);
+    return null;
+  }
+}
+
 onMounted(() => {
   loadTypes();
   loadEntreprises();
+  // Charger le paramètre prix au m² au démarrage
+  getPrixM2Param();
+});
+
+// Watcher pour calculer automatiquement le budget quand la surface change
+watch(() => surfaceM2.value, async (newSurface) => {
+  if (newSurface && newSurface > 0) {
+    await setBudget(newSurface);
+  }
 });
 
 watch(() => show.value, (v) => {
@@ -127,8 +163,16 @@ function close () {
   emit('close');
 }
 
+async function setBudget(surface: number) {
+  const prixM2 = await getPrixM2Param();
+  if (prixM2 && surface > 0) {
+    budget.value = Math.round(surface * prixM2);
+  }
+}
+
 function reset() {
   budget.value = null;
+  niveau.value = 1; // Niveau fixé à 1 par défaut
   description.value = '';
   surfaceM2.value = null;
   selectedEntreprise.value = null;
@@ -266,6 +310,7 @@ async function save() {
     }
     const playload = {
       budget: Number(budget.value),
+      niveau: Number(niveau.value), // Ajout du niveau (fixé à 1)
       dateCreation: now,
       dateMiseAJour: now,
       description: description.value,
@@ -324,13 +369,13 @@ async function retrySave() {
       <h3>Enregistrer le point</h3>
 
       <div class="pfm-row">
-        <label>Budget</label>
-        <input type="number" v-model.number="budget" min="0" />
+        <label>Surface (m²)</label>
+        <input type="number" v-model.number="surfaceM2" min="0" placeholder="La saisie calculera automatiquement le budget" />
       </div>
 
       <div class="pfm-row">
-        <label>Surface (m²)</label>
-        <input type="number" v-model.number="surfaceM2" min="0" />
+        <label>Niveau (fixé à 1)</label>
+        <input type="number" v-model.number="niveau" :disabled="true" readonly class="readonly-field" />
       </div>
 
       <div class="pfm-row">
@@ -434,6 +479,7 @@ async function retrySave() {
 .pfm-row { margin-bottom: 10px; display:flex; flex-direction:column; }
 .pfm-row label { font-size: 13px; margin-bottom:4px; }
 .pfm-row input, .pfm-row select, .pfm-row textarea { padding:8px; border:1px solid #ddd; border-radius:4px; font-size:14px; }
+.readonly-field { background-color: #f8f9fa !important; color: #6c757d !important; cursor: not-allowed; }
 .pfm-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
 .pfm-actions button { padding:8px 12px; border-radius:4px; border: none; cursor:pointer; }
 .pfm-actions button:first-child { background:#eee; }
