@@ -436,6 +436,7 @@ const locateMe = async () => {
         <div class="meta-row"><strong>ID Type (raw):</strong> {{ (selectedSignalement?.idTypeSignalement && typeof selectedSignalement.idTypeSignalement === 'object') ? (selectedSignalement.idTypeSignalement.id ?? '—') : (selectedSignalement?.idTypeSignalement ?? selectedSignalement?.idType ?? '—') }}</div>
         <div class="meta-row"><strong>Budget :</strong> {{ selectedSignalement?.budget != null ? selectedSignalement.budget + ' €' : '—' }}</div>
         <div class="meta-row"><strong>Surface :</strong> {{ selectedSignalement?.surfaceM2 ?? '—' }} m²</div>
+        <div class="meta-row"><strong>Niveau :</strong> {{ selectedSignalement?.niveau ?? '—' }}</div>
         <div class="meta-row"><strong>Version :</strong> {{ selectedSignalement?.version ?? '—' }}</div>
         <div class="meta-row"><strong>postgres_id :</strong> {{ selectedSignalement?.postgres_id ?? '—' }}</div>
         <div class="meta-row"><strong>Coordonnées :</strong> {{ selectedSignalement?.location ? (selectedSignalement.location.lat + ', ' + selectedSignalement.location.lng) : '—' }}</div>

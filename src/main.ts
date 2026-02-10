@@ -36,7 +36,7 @@ import './theme/variables.css';
 
 // typescript
 // Extrait à mettre dans `src/main.ts` (remplacer l'appel actuel)
-import { requestPermissionAndSaveToken, onForegroundMessage } from '@/service/notificationService';
+import { requestPermissionAndSaveToken, onForegroundMessage } from '@/service/notificationService_old';
 import { auth } from '@/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -56,6 +56,8 @@ function canUseServiceWorker(): boolean {
 // Ne pas tenter d'enregistrer le SW sur les plateformes "hybrid" (Capacitor iOS/Android)
 onAuthStateChanged(auth, async (user) => {
   if (user && user.email) {
+    console.log('🔔 User authenticated, setting up notifications for:', user.email);
+
     // Si on est sur web et que ServiceWorker est utilisable, on essaye d'enregistrer
     if (!isPlatform('hybrid') && canUseServiceWorker()) {
       try {
@@ -65,11 +67,19 @@ onAuthStateChanged(auth, async (user) => {
       } catch (err) {
         console.error('SW registration failed:', err);
         // fallback sans registration
-        try { await requestPermissionAndSaveToken(user.email); } catch (e) { console.error('requestPermission fallback failed', e); }
+        try {
+          await requestPermissionAndSaveToken(user.email);
+        } catch (e) {
+          console.error('requestPermission fallback failed', e);
+        }
       }
     } else {
-      // native/hybrid or serviceWorker non disponible -> laisser notificationService gérer la logique hybrid
-      try { await requestPermissionAndSaveToken(user.email); } catch (e) { console.error('requestPermissionAndSaveToken failed for hybrid/non-sw', e); }
+      // native/hybrid - laisser notificationService gérer la logique hybrid
+      try {
+        await requestPermissionAndSaveToken(user.email);
+      } catch (e) {
+        console.error('requestPermissionAndSaveToken failed for hybrid/non-sw', e);
+      }
     }
   } else {
     console.log('Utilisateur non connecté - notifications non initialisées');
